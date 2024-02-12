@@ -1,0 +1,1206 @@
+## Generador estocastico de lluvias###########################################################################
+
+rm(list = ls())
+graphics.off()
+
+##Librerías
+
+library(hydroGOF)
+library(dplyr)
+library(padr)
+library(scorepeak)
+library(lubridate)
+
+
+##User inputs
+
+#monthlyData = read.csv("C:/1.R/Gen_Lluv_R/MonthlyData2000.csv", sep = ";")
+#monthlyData = read.csv("C:/1.R/Gen_Lluv_R/MonthlyData1991.csv", sep = ";")
+monthlyData = read.csv("C:/1.R/Gen_Lluv_R/MonthlyData1958.csv", sep = ";")
+
+
+RSGreal = read.csv("C:/1.R/Gen_Lluv_R/RSreal.csv", sep = ";")
+TMDreal = read.csv("C:/1.R/Gen_Lluv_R/TMDreal.csv", sep = ";")
+TmaxReal = read.csv("C:/1.R/Gen_Lluv_R/TmaxReal.csv", sep = ";")
+TminReal = read.csv("C:/1.R/Gen_Lluv_R/TminReal.csv", sep = ";")
+PPreal = read.csv("C:/1.R/Gen_Lluv_R/PPreal.csv", sep = ";")
+PPrealAnual1958 = read.csv("C:/1.R/Proyecto_praderas/PPanualRinco1958-2021.csv", sep = ";")
+
+RSGreal = RSGreal$ï..RSG.MJ.m2d.[1:1200]
+TmaxReal =TmaxReal$ï..TmaxReal[1:1200]
+TminReal =TminReal$ï..TminReal[1:1200]
+PPreal = PPreal$ï..Ppreal[1:1200]
+PPreal = ifelse(PPreal>2,PPreal,0)
+
+length(which(PPreal>2))
+
+###semilla para numeros aleatorios##########################################################################
+set.seed(10)
+##Modelo####################################################################################################
+
+n = nrow(monthlyData)
+
+years = 100
+
+LluvIni = c(1) #Llueve o no llueve el 1er día (LluvIni>0:no llueve, LluvIni<0:sí llueve)
+
+AnnualRain = c()
+AnnualFlag = c()
+AnnualLL = c()
+
+##Ciclo mas externo simula 100 años###########################################################################
+for (g in 1:years) {
+
+##1er ciclo for##Simula 12 meses##############################################################################
+for (i in 1:n) {
+  ##Parametros de 1er orden
+  N = monthlyData$N[i]                  #Numero de días del mes i (d)
+  NDLL = monthlyData$NDLL[i]            #Numero de dias de lluvia promedio por mes (d/mes)
+  ppMP = monthlyData$ppmens[i]          #Precipitacion mensual promedio (mm/mes)
+
+  ##Parametros de 2do orden
+  fwet = NDLL/N         #Fracción humeda del mes i (0-1)
+  ppx = ppMP/NDLL       #Cuanto llueve los días en que llueve en promedio
+  
+  ##Variables
+  pwd = 0.75 * fwet           #Probabilidad de que hoy llueva dado que ayer no llovio
+  pww = 0.25 + pwd            #Probabilidad de que hoy llueva dado que ayer llovio
+  
+  
+  rnd1 = runif(n=N,min=0,max=1) #Se usa para determinar Cday
+  
+  Cmonth=c()              #Vector vacío para llenarse en c/ iteración y crear el vector "Cday"
+  C_flag = c()            #Vector vacío para llenar y saber que ecuación se usó (pww(1y3)-pwd(2-4))
+  
+  ##2do Ciclo for##Simula c/día del mes##########################################################################
+  for (j in 1:N) {          #length(rnd1) en vez de N
+    
+      if (j==1) {                                                                                                     #sí es el 1er día de la serie
+        if (LluvIni < 0) {Cday = rnd1[j] - pww; C_flag0 = 1} else {Cday = rnd1[j] - pwd; C_flag0 = 2}                 #sí lluviaini es 1 entonces usa "C0 = rnd1[j] - pww", si no usa "C0 = rnd1[j] - pwd"   ..
+      } else {                                                                                                        #Si no es el 1er día de la serie
+        if (Cmonth[length(Cmonth)] < 0) {Cday = rnd1[j] - pww; C_flag0 = 3 } else {Cday = rnd1[j] - pwd; C_flag0 = 4} #Sí en Cday[j-1] (ayer) 
+      }
+    
+    Cmonth=c(Cmonth,Cday)
+    C_flag = c(C_flag,C_flag0)
+    
+    print(paste("Día:", j, "Mes:",monthlyData$ï..Mes[i]))
+  } ##Fin del 2do ciclo###########################################################################################
+  
+  LluvIni = Cmonth[length(Cmonth)]          #Reeplaza LluviaIni inicial con: el ultimo valor de C degerado en el ciclo 2
+  
+  rnd2 = runif(n=N,min=0,max=1)             #Si se usa para determinar el monto pluviometrico
+  
+  rains = Cmonth < 0                        #Si C < 0 entonces llueve #Considerando que ayer no llovió #¿Hoy llueve o no llueve? T or F
+  
+  amount = 0.84 * ppx * (-log(rnd2))^1.333  #Monto pluviometrico potencial de c/ día
+  
+  Rain = rains * amount                     #Monto plviometrico real de cada día
+  
+  
+  AnnualRain = c(AnnualRain, Rain)          #Concatena los valores actuales de Annualain con los valores generados en esta iteración
+  AnnualFlag = c(AnnualFlag, C_flag)
+  AnnualLL = c(AnnualLL, rains)
+  
+  print(paste("Mes:",i,"de",n,"--------------", round(i*100/n),"%"))
+  
+}##Fin del 1er ciclo for##############################################################################################
+
+  print(paste("Año:",g,"de",years,"-------------------------------------------", round(g*100/years),"%"))
+  
+}##Fin del ciclo mas externo 100 años##################################################################################Resultados########################################################################################################
+
+#AnnualRain
+sum(AnnualRain)
+length(AnnualRain)
+#summary(AnnualRain)
+
+Ndays = 365*100
+
+#######################################
+
+plot(AnnualRain, xlim = c(0,2920), ylim = c(0,100), type = "h", col = "blue", xlab = "Días iterados (d)", ylab = "Precipitación (mm/d)", lwd=1.5, cex.axis = 1.15, cex.lab = 1.3, cex.main= 1.35)
+
+AnnualLL                  #Llueve o no llueve T o F
+AnnualFlag                #flags anuales 
+length(AnnualFlag)
+
+
+##Creación de Las fechas correspondientes a cada año de lluvias simulado
+
+Dates = seq(as.Date("2000-01-01"), as.Date("2099-12-31"), by="days")                      #año-mes-día
+length(Dates)
+
+Dates <- Dates[!(format(Dates,"%m") == "02" & format(Dates, "%d") == "29"), drop = FALSE] # Remueve los días 02-29 de cada año bisiesto
+length(Dates)
+
+##Sub rutina para convertir La fecha en días julianos
+
+DJ <- Dates
+DJ <- format(DJ, "%j")
+DJN = as.numeric(DJ)
+length(DJN)
+
+##Generación de tablas resumen de PP anual y NDLL#####################
+##PP anual simulada######################################################################
+DF_RAIN = data.frame(Fecha = Dates[1:Ndays], pp_day = AnnualRain[1:Ndays]) #PP
+
+YearRain <- DF_RAIN %>% 
+  thicken(interval = "year") %>%
+  group_by(Fecha_year) %>% 
+  summarise(pp_year = sum(pp_day))
+
+DF_NDLL = data.frame(Fecha = Dates[1:Ndays], NDLL_day = AnnualLL[1:Ndays]) #PP
+
+YearNDLL <- DF_NDLL %>% 
+  thicken(interval = "year") %>%
+  group_by(Fecha_year) %>% 
+  summarise(NDLL_year = sum(NDLL_day))
+
+summary(YearNDLL$NDLL_year)
+hist(YearNDLL$NDLL_year)
+
+##Años secos, normales, lluviosos y miuy lluviosos según criterio deGastó (1966) para serie simulada
+
+VeryDryYears = which(YearRain$pp_year < median(YearRain$pp_year)*0.4 ) 
+NVeryDryYears = length(VeryDryYears)
+
+DryYears = which(ifelse(YearRain$pp_year > median(YearRain$pp_year)*0.4 & YearRain$pp_year < median(YearRain$pp_year)*0.8, T, F) )
+NDryYears = length(DryYears)
+
+NormalYears = which(ifelse(YearRain$pp_year > median(YearRain$pp_year)*0.8 & YearRain$pp_year < median(YearRain$pp_year)*1.2, T, F) )
+NNormalYears = length(NormalYears)
+
+RainyYears = which(ifelse(YearRain$pp_year > median(YearRain$pp_year)*1.2 & YearRain$pp_year < median(YearRain$pp_year)*1.6, T, F) )
+NRainyYears = length(RainyYears)
+
+VeryRainyYears = which(ifelse(YearRain$pp_year > median(YearRain$pp_year)*1.6 & YearRain$pp_year < median(YearRain$pp_year)*2, T, F) )
+NVeryRainyYears = length(VeryRainyYears)
+
+ExtRainyYears = which(YearRain$pp_year > median(YearRain$pp_year)*2 ) 
+NExtRainyYears = length(ExtRainyYears)
+
+NVeryDryYears;NDryYears;NNormalYears;NRainyYears;NVeryRainyYears;NExtRainyYears
+VariaconPPsimu = c(NVeryDryYears,NDryYears,NNormalYears,NRainyYears,NVeryRainyYears,NExtRainyYears)
+plot(VariaconPPsimu, type = "l", ylim = c(0,60), col = "red", lwd = 2)
+
+summary(YearRain$pp_year)
+sd(YearRain$pp_year)
+length(which(YearRain$pp_year <= mean(YearRain$pp_year))) #% de años menores a la mediana
+max(YearRain$pp_year)/min(YearRain$pp_year) #Cuantas veces la pp minima está contenida en la máxima
+
+hist(YearRain$pp_year, col = "blue", xlab = "Precipitaciónes (mm año )", main = "Histograma de precipitaciones simuladas")
+
+##Datos de precipitacion total anual de serie historica rinconada de maipú
+
+VeryDryYearsReal = which(PPrealAnual1958$ï..PPanual1958 < median(PPrealAnual1958$ï..PPanual1958)*0.4 ) 
+NVeryDryYearsReal = length(VeryDryYearsReal)*100/length(PPrealAnual1958$ï..PPanual1958)
+
+DryYearsReal = which(ifelse(PPrealAnual1958$ï..PPanual1958 > median(PPrealAnual1958$ï..PPanual1958)*0.4 & PPrealAnual1958$ï..PPanual1958 < median(PPrealAnual1958$ï..PPanual1958)*0.8, T, F) )
+NDryYearsReal = length(DryYearsReal)*100/length(PPrealAnual1958$ï..PPanual1958)
+
+NormalYearsReal = which(ifelse(PPrealAnual1958$ï..PPanual1958 > median(PPrealAnual1958$ï..PPanual1958)*0.8 & PPrealAnual1958$ï..PPanual1958 < median(PPrealAnual1958$ï..PPanual1958)*1.2, T, F) )
+NNormalYearsReal = length(NormalYearsReal)*100/length(PPrealAnual1958$ï..PPanual1958)
+
+RainyYearsReal = which(ifelse(PPrealAnual1958$ï..PPanual1958 > median(PPrealAnual1958$ï..PPanual1958)*1.2 & PPrealAnual1958$ï..PPanual1958 < median(PPrealAnual1958$ï..PPanual1958)*1.6, T, F) )
+NRainyYearsReal = length(RainyYearsReal)*100/length(PPrealAnual1958$ï..PPanual1958)
+
+VeryRainyYearsReal = which(ifelse(PPrealAnual1958$ï..PPanual1958 > median(PPrealAnual1958$ï..PPanual1958)*1.6 & PPrealAnual1958$ï..PPanual1958 < median(PPrealAnual1958$ï..PPanual1958)*2, T, F) )
+NVeryRainyYearsReal = length(VeryRainyYearsReal)*100/length(PPrealAnual1958$ï..PPanual1958)
+
+ExtRainyYearsReal = which(PPrealAnual1958$ï..PPanual1958 > median(PPrealAnual1958$ï..PPanual1958)*2 ) 
+NExtRainyYearsReal = length(ExtRainyYearsReal)*100/length(PPrealAnual1958$ï..PPanual1958)
+
+NVeryDryYearsReal;NDryYearsReal;NNormalYearsReal;NRainyYearsReal;NVeryRainyYearsReal;NExtRainyYearsReal
+VariaconPPreal = c(NVeryDryYearsReal,NDryYearsReal,NNormalYearsReal,NRainyYearsReal,NVeryRainyYearsReal,NExtRainyYearsReal)
+VariaconPPgasto1966 = c(2, 26, 40, 18, 7, 6) #Gastó (1966), para la zona mediterránea semiárida
+
+plot(VariaconPPreal, type = "l", ylim = c(0,50), col = "red", ylab = "Frecuencia", xlab = "Clases", lwd = 2)
+par(new=T)
+plot(VariaconPPsimu, type = "l", ylim = c(0,50), col = "blue", axes = F, ylab ="", xlab = "", lwd = 2)
+par(new=T)
+plot(VariaconPPgasto1966, type = "l", ylim = c(0,50), col = "orange", axes = F, ylab ="", xlab = "", lwd = 2)
+
+summary(PPrealAnual1958$ï..PPanual1958)
+sd(PPrealAnual1958$ï..PPanual1958)
+length(which(PPrealAnual1958$ï..PPanual1958 <= mean(PPrealAnual1958$ï..PPanual1958)))*100/length(PPrealAnual1958$ï..PPanual1958) #% de años menores a la mediana
+max(PPrealAnual1958$ï..PPanual1958)/min(PPrealAnual1958$ï..PPanual1958)
+hist(PPrealAnual1958$ï..PPanual1958, col = "red", xlab = "Precipitaciónes (mm año )", main = "Histograma de precipitaciones para serie histórica")
+
+##NDLL anuales sumulados######################################################################
+
+DF_RAIN = data.frame(Fecha = Dates[1:Ndays], NDLL_day = AnnualLL[1:Ndays]) #NDLL
+
+YearRain <- DF_RAIN %>% 
+  thicken(interval = "year") %>%
+  group_by(Fecha_year) %>% 
+  summarise(pp_year = sum(NDLL_day))
+
+summary(YearRain$pp_year)
+sd(YearRain$pp_year)
+
+##NDLL mensuales sumulados######################################################################
+
+DF_RAIN = data.frame(Fecha = Dates[1:Ndays], pp_day = AnnualRain[1:Ndays]) #PP
+
+MonthRain <- DF_RAIN %>% 
+  thicken(interval = "month") %>%
+  group_by(Fecha_month) %>% 
+  summarise(pp_year = sum(pp_day))
+
+#write.csv(MonthRain, "C:/Users/paloc/Desktop/MonthRain.csv")
+
+######################################################################################
+
+##Sub rutina de Generacipon de Radiación Solar Radición Neta y TMD°C
+
+##Parametos
+Gsc = 0.082 
+LatDec = -33.4780
+LatRad = pi*LatDec/180
+as = 0.25
+bs = 0.5
+
+ALBEDO = 0.24
+
+##Variables
+dr = 1 + 0.033 * cos((2 * pi * DJN)/365) #Distancia relativa inversa tierra-sol
+DELTA = 0.409 * sin ((2 * pi * DJN/365) - 1.39) #Decliación solar en radianes
+OMEGA = acos(-tan(LatRad) * tan(DELTA)) #Angulo radiación a la puesta de sol en radianes
+
+RE = (24*60/pi) * Gsc * dr * (OMEGA * sin(LatRad) * sin(DELTA) + cos(LatRad) * cos(DELTA) * sin(OMEGA)) #Radiación extraterrestre sobre sup plana
+
+
+
+##Rutina de Generación de Tmax y min c/ residuo aleatorio##########################################################################
+#Esta subrutina genera las temperaturas maximas y minimas diarias.
+
+
+#Generación componente aleatorio de las temperaras
+eetmax = 0 #sqrt(3.778836)
+eetmin = 0 #sqrt(2.881179)
+
+txmax = 30.51806452   #Valor medio de las temperaturas maximas de enero
+txmin = 15.71388889   #Valor medio de las temperaturas maximas de junio
+
+tnmax = 11.46129032
+tnmin = 1.887777778
+
+
+set.seed(15)
+errortmax = rnorm(36500, mean = 0, sd = eetmax)
+set.seed(25)
+errortmin = rnorm(36500, mean = 0, sd = eetmin)
+
+summary(errortmax)
+summary(errortmin)
+#Calcula temperaturas maxima, minima y medias diarias
+
+tmax = txmax - ((1 - sin((75 + DJN) * 0.0174533)) * (txmax - txmin) * 0.5) + errortmax
+tmin = tnmax - ((1 - sin((75 + DJN) * 0.0174533)) * (tnmax - tnmin) * 0.5) + errortmin
+
+tmaxnew = c()
+tminnew = c()
+
+for (f in 1:36500) {
+  if (tmax[f] < tmin[f]) {tmaxnew0 = tmin[f]} else {tmaxnew0 = tmax[f]}
+  if (tmax[f] < tmin[f]) {tminnew0 = tmax[f]} else {tminnew0 = tmin[f]}  
+  
+  tmaxnew = c(tmaxnew, tmaxnew0)    
+  tminnew = c(tminnew, tminnew0)
+}
+
+which(ifelse(tmax<tmin,T,F))
+which(ifelse(tmaxnew<tminnew,T,F))
+
+TMD = (tmaxnew + tminnew) * 0.5
+
+#Calculo error estandard del modelo
+
+# yActualTmax = TmaxReal
+# yEstimateTmax = tmaxnew[91:(90+1200)]
+# 
+# yActualTmin = TminReal
+# yEstimateTmin = tminnew[91:(90+1200)]
+# 
+# StdErrTmax  = (sum((yEstimateTmax - yActualTmax)^2)/(length(yEstimateTmax)-2) )^0.5
+# StdErrTmin  = (sum((yEstimateTmin - yActualTmin)^2)/(length(yEstimateTmin)-2) )^0.5
+# 
+# gof(sim = yEstimateTmax, obs = yActualTmax)
+# gof(sim = yEstimateTmin, obs = yActualTmin)
+
+###############################################
+############################################################
+
+DF_TMD = data.frame(Fecha = Dates[1:Ndays], TMD_day = TMD[1:Ndays]) #data frame de TMD
+
+MonthTMD <- DF_TMD %>% #DF de temperatura media mensual
+  thicken(interval = "month") %>%
+  group_by(Fecha_month) %>% 
+  summarise(TMD_month = mean(TMD_day))
+
+MonthTMD = as.data.frame(MonthTMD)
+#write.csv(MonthTMD, "C:/Users/paloc/Desktop/MonthTMD.csv")
+
+
+
+##Plots Tmax Tmin Tmed simulados y reales###################################################################
+
+plot(tmaxnew, type = "l", col = "red", xlim = c(0,365), ylim=c(-10,40), ylab = "T°")
+par(new=T)
+plot(tminnew, type = "l", col = "blue", xlim = c(0,365), ylim=c(-10,40), ylab = "")
+par(new=T)
+plot(TMD, type = "l", col = "black", xlim = c(0,365), ylim=c(-10,40), ylab = "")
+
+##Plot Tmax real con ajuste sinusoidal
+
+plot(x = DJN[91:(90+length(TmaxReal))], y = TmaxReal, ylim = c(5,40), xlab = "Día Juliano", ylab = "T° máxima real (2016-2020) [°]")
+par(new=T)
+plot(x = DJN[1:365], y = tmax[1:365], col = "red", pch = ".", ylim = c(5,40), xlab = "",ylab="", cex = 5)
+text(x = 200, y = 37, labels = "eetmax = 3,77°C" )
+text(x = 200, y = 32, labels = "R2 = 0,66" )
+
+
+#Calculo de RSG tdif Method (FAO 56)
+
+RSG_tdif = 0.16 * ((tmaxnew - tminnew)^0.5) * RE 
+
+##Calculo de RS diaria promedio mensual simulada mediante T dif method (SOLO DEL 1er AÑO)
+DF_RS = data.frame(Fecha = Dates[1:365], RSG_tdif = RSG_tdif[1:365])
+
+MonthRS <- DF_RS %>% 
+  thicken(interval = "month") %>%
+  group_by(Fecha_month) %>%
+  summarise(rs_month = mean(RSG_tdif))
+
+
+
+##Subrutina para calcular radiación solar potencial y rad. solar real a partir de datos astronómicos y de temperaturas.
+
+#Coeficientes de programa
+pi = 3.141592654
+cvde = 57.29578
+Cvr = pi / 180
+w = 0.0043633231
+
+#Ingreso de variables desde la planilla
+
+Slope = 0                    #Pendiente en porcentaje
+Slp = atan(Slope/100)        #Pendiente en radianes
+#Slp = Slp * 180/pi          #Pendiente en grados decimales
+
+asp = 360                      #Exposicion grados respecto al Norte
+jday = DJN                #Variable auxiliar
+alb = 0.24
+
+#Variables que se pueden calcular externamente
+
+
+
+
+
+#Calcula radiación solar usando rutina PINSOL.FOR
+Xlat = -33.4780                  #Latitud en grados decimales
+
+raAcc = c()
+rashAcc = c()
+CoefTranspAcc = c()
+RaDifAcc = c()
+RsRefleAcc = c()
+rsgAcc = c()
+
+for (e in 1:36500) {
+  
+
+
+#Transforma diajuliano a dia en radianes
+diarad = 2 * pi * (jday[e] - 1) / 365
+
+#Calcula distancia tierra-sol en unidades astronomicas
+    A1 = 1.00011
+    B1 = 0.034221 * cos(diarad) + 0.00128 * sin(diarad)
+    C1 = 0.000719 * cos(2 * diarad) + 0.000077 * sin(2 * diarad)
+    EoRS = A1 + B1 + C1
+    
+#Calcula declinacion solar
+    A2 = 0.006918
+    B2 = -0.399912 * cos(diarad) + 0.070257 * sin(diarad)
+    C2 = -0.006758 * cos(2 * diarad) + 0.000907 * sin(2 * diarad)
+    D2 = -0.002697 * cos(3 * diarad) + 0.00148 * sin(3 * diarad)
+    Decl = A2 + B2 + C2 + D2
+
+#Insolacion potencial como funcion del tiempo
+    aip = 2 + 0.07 * cos(jday[e] * pi / 182.621)
+    sinLat = sin(Xlat * Cvr)
+    sinDec = sin(Decl)
+    sinAsp = sin(asp * Cvr)
+    sinSlp = sin(Slp)
+    clat = cos(Xlat * Cvr)
+    cosDec = cos(Decl)
+    cosAsp = cos(asp * Cvr)
+    cosSlp = cos(Slp)
+    
+    
+    if (abs(Xlat)<= 89.99999) {tanl = tan(Xlat * Cvr)} else {tanl = 6000000; if (Xlat < 0) {tanl = -tanl} }
+    
+    tand = tan(Decl)
+    
+#Determina angulo horario del sol para salida y puesta del sol con pendiente cero
+    
+    tltd = -tanl * tand
+    
+    Wtime = ifelse(abs(tltd)<= 1,acos(-tanl * tand),ifelse(tltd > -1,0,pi)) #Caso de algo de día y algo de oscuridad; Caso deoscuridad perpetua; Caso de sol perpetuo
+    
+    tiempo = Wtime / w
+    
+#Determina valores en el caso de pendiente cero
+    wt1 = -Wtime
+    wt2 = Wtime
+    srise = wt1 / w
+    sset = wt2 / w
+    aish = ((wt2 - wt1) * sinLat * sinDec + clat * cosDec * (sin(wt2) - sin(wt1))) / w
+    aiqh = aip * aish
+    
+    rih = ifelse(tiempo > 0, 50 * aish/tiempo, 0) #if (tiempo > 0) {rih = 50 * aish / tiempo; rsh = 1} else {rih = 0; rsh = 0}
+    rsh = ifelse(tiempo > 0, 1, 0)
+    
+#####################################################################################################################################################
+    
+    if (Slope == 0) {aiq = aiqh; ri = rih} else {
+      AR = sinAsp * sinSlp/(cosSlp * clat - cosAsp * sinSlp * sinLat)
+      alpha = atan(AR) #Calcula el argumento para determinar cambio en longitud (ALPHA) debido a superficie con pendiente
+      a = sinSlp * cosAsp * clat + cosSlp * sinLat
+      if (abs(a) < 99999) {tanehl = a / sqrt(1 - a * a)} else {tanehl = a * 225}
+      
+      ehl = atan(tanehl)
+      sehl = sin(ehl)
+      cehl = cos(ehl)
+      tehltd = -tanehl * tand
+      
+      if (abs(tehltd) <= 1) {Wt = acos(-tanehl * tand)} else {if (tehltd > -1) {Wt = 0} else {Wt = pi} }
+      
+      wt1 = -Wt - alpha
+      wt2 = Wt - alpha
+      
+      #Chequea con valores para una superficie horizontal
+      
+      if (Wtime < abs(wt1)) {wt1 = -Wtime}
+      if (Wtime < abs(wt2)) {wt2 = Wtime}
+      
+      srise = wt1/w
+      sset = wt2/w
+      
+      #Calcula la insolacion potencial para el sitio actual
+      ais = ((wt2 - wt1) * sehl * sinDec + cehl * cosDec * (sin(wt2 + alpha) - sin(wt1 + alpha))) / w
+      aiq = aip * ais
+      
+      if (tiempo > 0) {ri = 50 * ais/tiempo; rsh = aiq/aiqh} else {ri = 0; rsh = 0}
+    
+    } 
+    
+    
+    #Radiacion solar potencial en MJ/m2/dia#################################################################################################
+    ra = EoRS * aiq * 4.184 / 100
+    wsr = srise
+    wss = sset
+    
+    #Duración del día
+    N = (2 / 15) * Wtime * (180 / pi)
+    
+    #Radiación solar superficie horizontal
+    rash = EoRS * aiqh * 4.184 / 100
+    
+    #Calcula coeficiente de transferencia de la atmósfera en función de las temperaturas y la rad. solar potencial
+  
+    diftemp = tmaxnew[e] - tminnew[e]
+    if (diftemp < 1)  {diftemp = 1}
+    
+    K1 = 0.45            #0.42 #0.35 original
+    K2 = 0.329
+    
+    CoefTransp = K1 * (1 - exp(-K2 * diftemp ^ 2 / rash))
+    
+    #Calcula radiación solar difusa
+    RaDif = rash * (1 - 1.096 * CoefTransp)
+    
+    #Radiación reflejada por la superficie que es reemitida por scattering a la superficie terrestre
+    RsRefle = 0.5 * rash * alb * (1 - cos(Slp))
+    
+    #Calcula radiación solar global
+    if (AnnualRain[e] != 0) {rpas = RaDif * CoefTransp} else {if (abs(Slope) == 0 | asp < 0) {rpas = (rash + RaDif) * CoefTransp} else {if (Slope != 0) {rpas = (ra + RaDif * 0.5 * (1 + cos(Slp)) + RsRefle) * CoefTransp} } }
+    
+    rsg = rpas
+    
+    
+raAcc = c(raAcc, ra)
+rashAcc = c(rashAcc, rash)
+CoefTranspAcc = c(CoefTranspAcc, CoefTransp)
+RaDifAcc = c(RaDifAcc, RaDif)
+RsRefleAcc = c(RsRefleAcc, RsRefle)
+rsgAcc = c(rsgAcc, rsg)
+
+print(paste0("Day ",e," of ",36500," --------- " ,e*100/36500,"%"))
+
+}
+##Fin Pinsol.for##########################################################################################################
+##########################################################################################################################
+#############################################################################################################################
+
+DF_rsgPinsol = data.frame(Fecha = Dates[1:Ndays], rsg_day = rsgAcc[1:Ndays]) #DF de RSG diaria segun PINSOL.for Para superficie plana
+
+MonthRSG <- DF_rsgPinsol %>% 
+  thicken(interval = "month") %>%
+  group_by(Fecha_month) %>% 
+  summarise(RSG_month = mean(rsg_day))
+
+MonthRSG = as.data.frame(MonthRSG)
+
+# write.csv(MonthRSG, "C:/Users/paloc/Desktop/MonthRSGpinsol_K1_0.45.csv")
+
+plot(raAcc,type = "l", xlim = c(0,365), ylim = c(0,45), col = "red" ); par(new=T) #RE
+plot(rashAcc,type = "l", xlim = c(0,365), ylim = c(0,45), col = "orange" ); par(new=T) #RS sup horizontal
+#plot(CoefTranspAcc, col = "blue" ); par(new=T)
+plot(RaDifAcc, type = "l", xlim = c(0,365), ylim = c(0,45), col = "lightblue" ); par(new=T) #RS difusa
+plot(RsRefleAcc, type = "l", xlim = c(0,365), ylim = c(0,45), col = "yellow" ); par(new=T)  #RS reflejada
+plot(rsgAcc, type = "l", xlim = c(0,365), ylim = c(0,45), col = "green" ) #RSG
+
+plot(RSG_tdif, xlim = c(0,365), ylim= c(0,45))
+
+##ETo
+
+RN = (2 * pi/365)* rsgAcc * (1 - alb) ##MJ/m2d
+PdteCPV = (5304/((TMD + 273)^2)) * exp(21.3 - (5304/(TMD + 273)))
+ETo = 30.6 * RN * (PdteCPV/(PdteCPV + 0.68))
+
+##Inicio de ciclo for que genera Cobertura, ETreal, Balance Hidrico, Exceso, SMAF, FRETDH, ALFA, TasaCto y MSvegetal 
+
+##Parametros de suelo (Serie Pudahuel)  La serie con mayor Ha (78.4 mm)
+
+Z = 0.4 #m
+Ped = 0 #%
+
+Da = 1.48 #g/cm3
+CDC = 0.2605 #gravimetrico
+PMP = 0.128 
+
+##Parametros de suelo (Serie Cuesta barriga) (53.2 mm)
+
+Da = 1.56 #g/cm3
+CDC = 0.18 #gravimetrico
+PMP = 0.095 
+
+
+Ha = (CDC - PMP) * Da * Z * (1-(Ped/100)) * 1000 #mm
+HScdc = CDC * Da * Z * (1-(Ped/100)) * 1000 #mm
+HSpmp = PMP * Da * Z * (1-(Ped/100)) * 1000 #mm
+HSini = HSpmp + (Ha * 0.05) #mm
+
+
+##Parametros Vegetacionales#########################################################################
+
+TCPmax = 120 #Tasa de Cto Potencial maxima (kg/ha/d)
+MSVini = 0 #Materia seca vegetal inicial
+MSMini = 0 #MS Muerta inicial
+MSV100 = 100
+
+P = 0.8 #Parametro de sensibilidad al stress hidrico #0.7
+
+TU = 4.5 #Temperatura umbral para el desarrollo
+fi = 1300 
+fiFLOR = 0.6
+
+FTEMP = 1/(1 + 17363.9 * exp(-1.22039 * TMD)) #Factor de restriccion al cto por Temperatura
+TCP = TCPmax * (1 - exp(-0.06463 * RSG_tdif)) * FTEMP #Tasa de Cto Potencial (kg/ha/d)
+C = 1/(350 + 33 * TCP)
+A = TCP * exp(1) * C
+
+DDG = ifelse(TMD - TU > 0, TMD - TU, 0)
+DDGaccini = 0
+
+FRETDHini = 1
+DIAFLORini = 0 #Valor inicial del vector que indica que día florece la pradera
+DiasDeFlor0 = 0
+
+##Inicio Ciclo Principal########################################################
+
+LimAnos = c()
+IniCto2 =c()
+IniCto = c()
+MST = c()
+TPERD = c(0)
+TPERDLL = c()
+TPERDTMD = c()
+MSM = c()
+TSEN = c(0)
+TGD3 = c()
+DiasDeFlor = c()
+DIAFLOR = c()
+TGD2 = c()
+TGD1 = c()
+PerFlo = c()
+td = c()
+DDGacc = c()
+COB = c()
+ETR = c()
+HS = c()
+EX = c()
+SMAF = c()
+FRETDH = c()
+ALFA = c()
+TCR = c()
+MSV = c()
+
+Ndays = 365*100
+
+DF_RAIN = data.frame(Fecha = Dates[1:Ndays], pp_day = AnnualRain[1:Ndays])
+
+YearRain <- DF_RAIN %>% 
+  thicken(interval = "year") %>%
+  group_by(Fecha_year) %>% 
+  summarise(pp_year = sum(pp_day))
+
+Years = format(YearRain$Fecha_year, "%Y")
+
+
+Day_count = seq(1,36500,1)
+DF_YEAR_RAIN = data.frame(DateYr = Years, pp_year = YearRain$pp_year)
+
+summary(DF_YEAR_RAIN$pp_year)
+sd(DF_YEAR_RAIN$pp_year)
+hist(DF_YEAR_RAIN$pp_year, breaks = seq(70,700,70))
+
+###
+
+length(HS)
+length(EX)
+length(SMAF)
+length(FRETDH)
+
+length(ALFA)
+length(IniCto)
+length(IniCto2)
+
+length(PerFlo)
+length(DDGacc)
+length(td)
+length(DIAFLOR)
+length(DiasDeFlor)
+
+length(MSV)
+length(MSM)
+length(MST)
+length(TCR)
+
+length(TSEN) #largo+1
+length(TGD1)
+length(TGD2)
+length(TGD3)
+
+length(TPERD) #largo +1
+length(TPERDLL)
+length(TPERDTMD)
+
+
+
+###inicio####
+
+for (x in 1:Ndays) { #length(AnnualRain)
+  
+  if (DJN[x] == 365) {LimAnos0 = 1} else {LimAnos0 = 0}
+  
+  LimAnos = c(LimAnos, LimAnos0)
+  
+  if (x < 14) {IniCto0 = 0} else {if (sum(AnnualRain[x:(x-13)]) >= 20) {IniCto0 = 1} else {IniCto0 = 0}}
+  
+  IniCto = c(IniCto, IniCto0)
+  
+  if (x == 1) {IniCto20 = 0} else {if ((IniCto[x-1] == 0) & (IniCto[x] == 1)) {IniCto20 = 1} else {IniCto20 = 0}}
+  
+  IniCto2 = c(IniCto2, IniCto20)
+  
+  if (x == 1) {COB0 = 1 - 0.8 * exp(-2 * MSVini/2500)} else {if (MSV[x-1] >= 100) {COB0 = 1 - 0.6 * exp(-3 * MSV[x-1]/2500)} else {COB0 = 1 - 0.8 * exp(-2 * MSV[x-1]/2500)}}
+  
+  COB = c(COB, COB0)
+  
+  if (x == 1) {ETR0 = ETo[x] * FRETDHini * COB[x]} else {ETR0 = ETo[x] * FRETDH[x-1] * COB[x]} #¿Debería usar el FRETDH de ayer?
+  
+  ETR = c(ETR, ETR0)
+  
+  if (DJN[x] == 1) {HS0 = HSini} else {if (HS[x-1] + AnnualRain[x] - ETR[x]- EX0 < HSpmp) {HS0 = HSpmp} else {HS0 = HS[x-1] + AnnualRain[x] - ETR[x]- EX0 }}
+
+  HS = c(HS, HS0)
+
+  if (HS[x] - HScdc >= 0) {EX0 = HS[x] - HScdc} else {EX0 = 0}
+
+  EX = c(EX,EX0)
+  
+  SMAF0 = (HS[x] - HSpmp)/(HScdc - HSpmp)
+  SMAF = c(SMAF, SMAF0)
+  
+  if (x == 1) {FRETDH0 = FRETDHini} else {if (SMAF[x]/P > 1) {FRETDH0 = 1} else {FRETDH0 = SMAF[x]/P}}
+  
+  FRETDH = c(FRETDH, FRETDH0)
+  
+  ALFA0 = ETR[x]/ETo[x]
+  ALFA = c(ALFA, ALFA0)
+  
+  if (x == 1) {TCR0 = A[1] * (exp(-C[1] * MSVini)) * MSVini * ALFA[1]} else {TCR0 = A[x] * (exp(-C[x] * MSV[x-1])) * MSV[x-1] * ALFA[x]}
+  
+  TCR = c(TCR,TCR0)
+  
+  
+  if (DJN[x] == 1) {MSV0 = 0} else {if ((MSV[x-1]  == 0) & (IniCto2[x] == 0)) {MSV0 = 0} else {if ((MSV[x-1] == 0) & (IniCto2[x] == 1)) {MSV0 = 100; counter = 1} else {if (MSV[x-1] + TCR[x] - TSEN[x] <= 0) {MSV0 = 0; counter = 0} else {if ((HS[x] < HSpmp + 3) & (counter <= 56) ) {MSV0 = 0} else {MSV0 = MSV[x-1] + TCR[x] - TSEN[x] ;  counter = counter + 1 }}}}}
+  
+  MSV = c(MSV,MSV0)
+  
+  if (DJN[x] == 1) {MSM0 = MSMini} else {MSM0 = MSM[x-1] + TSEN[x] - TPERD[x]}
+  
+  MSM = c(MSM,MSM0)
+  
+  MST0 = MSV[x] + MSM[x]
+  MST = c(MST, MST0)
+  
+  if (MSV[x] <= 0) {DDGacc0 = 0} else {if (x == 1) {DDGacc0 = DDGaccini + DDG[x]} else {DDGacc0 = DDGacc[x-1] + DDG[x]}}
+    
+  DDGacc = c(DDGacc, DDGacc0)
+  
+  td0 = DDGacc[x]/fi
+  td = c(td, td0)
+  
+  if (td[x] >= 0.6) {PerFlo0 = 1} else {PerFlo0 = 0} 
+  
+  PerFlo = c(PerFlo, PerFlo0)  ##Pradera esta florecida o no (1-0) ¿La pradera esta en etapa de floración?
+  
+  if (x == 1) {DIAFLOR0 = DIAFLORini} else {if ((PerFlo[x-1] == 0) & (PerFlo[x] == 1)) {DIAFLOR0 = 1} else {DIAFLOR0 = 0}}
+  
+  DIAFLOR = c(DIAFLOR, DIAFLOR0) ##Día en que la pradera florece (1-0) ¿La pradera floreció hoy?
+  
+  if (DIAFLOR[x] == 1) {DiasDeFlor0 = Dates[x]} 
+  
+  DiasDeFlor = c(DiasDeFlor, DiasDeFlor0) ##Día juliano en que la pradera floreció (DJN)
+  
+  if (PerFlo[x] == 0) {TGD10 = 0} else {TGD10 = 3 + (80 * exp(-4.5 * SMAF[x]))}
+  
+  TGD1 = c(TGD1, TGD10)
+  
+  if (PerFlo[x] == 1) {TGD20 = 0.05 * (as.numeric(Dates[x] - DiasDeFlor[x])/7)^3} else {TGD20 = 0}
+  
+  TGD2 = c(TGD2, TGD20)
+  
+  if (PerFlo[x] == 1) {TGD30 = 0} else {if (0.0021*(MSV[x] + MSM[x]) - 1.56 > 0) {TGD30 = 0.0021*(MSV[x] + MSM[x]) - 1.56} else {TGD30 = 0}}
+  
+  TGD3 = c(TGD3, TGD30)
+  
+  if (x == 1) {TSEN0 = MSVini * (TGD1[x] + TGD2[x] + TGD3[x]) * 0.001} else {TSEN0 = MSV[x-1] * (TGD1[x-1] + TGD2[x-1] + TGD3[x-1]) * 0.001}
+  
+  TSEN = c(TSEN, TSEN0)
+  
+  TPERDTMD0 = MSM[x] * 0.0005 * TMD[x]
+  TPERDTMD = c(TPERDTMD, TPERDTMD0) 
+  
+  TPERDLL0 = -MSM[x] * (1 - exp(0.003077)) * AnnualRain[x]
+  TPERDLL = c(TPERDLL, TPERDLL0)
+  
+  TPERD0 = TPERDTMD0 + TPERDLL0
+  TPERD = c(TPERD,TPERD0)
+  
+  
+  print(paste("Día:",x,"de",Ndays,"--------------", round(x*100/Ndays),"%"))
+}   
+
+
+##Fin ciclo principal#####################################################################################################
+##########################################################################################################################
+##Summerización de tasas de crecimiento###################################################################################
+
+DF_TC = data.frame(Fecha = Dates[1:Ndays], TC_day = TCR[1:Ndays]) #DF_Tasa de crecimiento diaria
+
+MonthTC <- DF_TC %>% 
+  thicken(interval = "month") %>%
+  group_by(Fecha_month) %>% 
+  summarise(TC_month = mean(TC_day))
+
+# write.csv(MonthTC, "C:/1.R/DF_TC_pudahuel_flat.csv")
+
+
+##################lab
+
+##################lab
+
+##Plots##########################################################################
+PLOTini = 365*62
+PLOTlength = 365*70
+
+plot(PerFlo, type = "h", xlim = c(PLOTini, PLOTlength))
+
+##TGD y Senecencia
+plot(TGD1, type = "l", xlim = c(PLOTini, PLOTlength)) #Senecencia por Stress Hidrico
+plot(TGD2, type = "l", xlim = c(PLOTini, PLOTlength)) #Senecencia Fenologica 
+plot(TGD3, type = "l", xlim = c(PLOTini, PLOTlength)) #Por sombreamiento
+plot(TSEN, type = "l", xlim = c(PLOTini, PLOTlength))
+
+##Materia Seca
+plot(MSM, type = "l", xlim = c(PLOTini, PLOTlength), ylim = c(0, 2500), ylab = "MSV  MSM  MST (kgMS/ha)")
+par(new=TRUE)
+plot(MSV, type = "l", xlim = c(PLOTini, PLOTlength), ylim = c(0, 2500), col = "green", ylab = "")
+par(new=TRUE)
+plot(MST, type = "l", xlim = c(PLOTini, PLOTlength), ylim = c(0, 2500), col = "orange", ylab = "") 
+
+##Tasas Cto, Sencencia y Perdida de MS
+plot(TCR, type = "l", xlim = c(PLOTini, PLOTlength), ylim = c(0, 200), col = "green", ylab = "TCR  TSEN  TPERD (kgMS/ha/d)")
+par(new=TRUE)
+plot(TSEN, type = "l", xlim = c(PLOTini, PLOTlength), ylim = c(0, 200), col = "orange", ylab = "")
+par(new=TRUE)
+plot(TPERD, type = "l", xlim = c(PLOTini, PLOTlength), ylim = c(0, 200), ylab = "")
+
+
+##Humedad de suelo y Lluvia
+plot(HS, type = "l", xlim = c(PLOTini, PLOTlength), ylim = c(0, 220), col = "blue", ylab = "HS & PP (mm)")
+par(new=TRUE)
+plot(AnnualRain, type = "h", xlim = c(PLOTini, PLOTlength), ylim = c(0, 220), col = "red", ylab = "")
+abline(coef=c(HScdc,0), lwd = 2, lty = "dashed", col = "orange")
+abline(coef=c(HSpmp,0), lwd = 2, lty = "dashed", col = "orange")
+
+plot(EX, type = "h", xlim = c(PLOTini, PLOTlength), col = "purple", ylab = "Exceso (mm)")
+
+plot(SMAF, type = "l", xlim = c(PLOTini, PLOTlength), ylim = c(0, 1.5), col = "blue", ylab = "SMAF y FRETDH")
+par(new=TRUE)
+plot(FRETDH, type = "l", xlim = c(PLOTini, PLOTlength), ylim = c(0, 1.5), col = "orange", ylab = "")
+
+
+##Fenología
+plot(DDGacc, type = "l", col = "purple", xlim = c(PLOTini, PLOTlength))
+plot(td, type = "l", col = "purple", xlim = c(PLOTini, PLOTlength))
+
+plot(PerFlo, type = "h", xlim = c(PLOTini, PLOTlength), col = "lightblue", ylab = "PerFlo y DIAFLOR")
+par(new=TRUE)
+plot(DIAFLOR, type = "h", xlim = c(PLOTini, PLOTlength), col = "orange", ylab = "")
+
+plot(DiasDeFlor, type = "l", xlim = c(PLOTini, PLOTlength))
+
+##Analisis comparativo
+plot(HS, type = "l", xlim = c(PLOTini, PLOTlength), ylim = c(0, 220), col = "blue", ylab = "HS(mm) y PerFlo")
+par(new=TRUE)
+plot(PerFlo, type = "h", xlim = c(PLOTini, PLOTlength), col = "lightblue", ylab = "")
+
+plot(HS, type = "l", xlim = c(PLOTini, PLOTlength), ylim = c(0, 200), col = "blue", ylab = "HS(mm) MSV y MSM (kg/ha)")
+par(new=TRUE)
+plot(MSV, type = "l", xlim = c(PLOTini, PLOTlength), ylim = c(0, 3650), col = "green", ylab = "")
+par(new=TRUE)
+plot(MSM, type = "l", xlim = c(PLOTini, PLOTlength), ylim = c(0, 3650), ylab = "")
+par(new=TRUE)
+plot(IniCto, type = "l", xlim = c(PLOTini, PLOTlength), ylim = c(0, 2), ylab = "", col ="lightblue" )
+par(new=TRUE)
+plot(IniCto2, type = "l", xlim = c(PLOTini, PLOTlength), ylim = c(0, 2), ylab = "", col ="blue" )
+par(new=TRUE)
+plot(LimAnos, type = "h", xlim = c(PLOTini, PLOTlength), ylim = c(0, 1), ylab = "", col = "red")
+
+plot(COB, type = "l", xlim = c(PLOTini, PLOTlength), ylim = c(0, 1), col = "blue", ylab = "COB")
+par(new=TRUE)
+plot(SMAF, type = "l", xlim = c(PLOTini, PLOTlength), ylim = c(0, 1), col = "brown", ylab = "")
+par(new=TRUE)
+plot(LimAnos, type = "h", xlim = c(PLOTini, PLOTlength), ylim = c(0, 1), ylab = "", col = "red", axes = F, )
+
+##############################################################################################################
+##Extracción de valores maximos de MST de la serie de 100 años
+##############################################################################################################
+
+DFaux = data.frame(Dates = Dates[1:length(MST)], DJN = DJN[1:length(MST)], MST = MST[1:length(MST)])
+
+local_peaks <- detect_localmaxima(DFaux$MST, w = 365)         #Detecta los maximos locales dentro deuna ventana de 365 días 
+plot(DFaux$MST, type = "l", main = "Maximos Locales MST",xlim = c(365*70,365*80), xlab="Días iterados (d)", ylab="Materia Seca (kg/ha*d)")
+points(which(local_peaks), DFaux$MST[local_peaks], col = "red", pch = 1)
+par(new=T)
+plot(LimAnos, type = "h", xlim = c(0, 365*20), ylim = c(0, 1), ylab = "", col = "blue", axes = F, xlab="")
+
+which(local_peaks) #Posición  en el vector donde están los Maximos locales
+length(which(local_peaks))
+
+##Generación de un DF con valores filtrados de acuerdo al día del maximo anual de MST (LocalPeaks = T)###
+
+DFaux = data.frame(Day_count = Day_count, Dates = Dates[1:length(MST)], DJN = DJN[1:length(MST)], MST = MST[1:length(MST)], Peaks = local_peaks) ##DFque se desea filtrar
+DF_MSTmax_year = filter(DFaux, Peaks == T) 
+
+##############################################################################################################
+
+# ##Protocolo para eliminar datos duplicados dentro de un mismo año#####################
+# if (nrow(DF_MSTmax_year) != Ndays/365) { #Actividad proff reading de la polimerasa
+# 
+#   duplicated_years = year(DF_MSTmax_year$Dates)[duplicated(year(DF_MSTmax_year$Dates), fromLast = FALSE)]
+# 
+#   for (i in 1:length(duplicated_years)) { # Eliminacion años duplicados
+# 
+#     DFduplicated = filter(DF_MSTmax_year, year(DF_MSTmax_year$Dates) == duplicated_years[i])
+#     minMSTdate = DFduplicated$Date[DFduplicated$MST == min(DFduplicated$MST)]
+# 
+#     DF_MSTmax_year = DF_MSTmax_year[-(DF_MSTmax_year$Dates == minMSTdate),]
+# 
+#   }
+# 
+#   rownames(DF_MSTmax_year) <- 1:nrow(DF_MSTmax_year)
+# 
+#   print("Habían años repetidos")
+#   print(paste("Años duplicados:", duplicated_years))
+# 
+# }
+
+DF_MSTmax_years = format(DF_MSTmax_year$Dates, "%Y") #Generación de solo los años correspondientes a c/fecha
+DF_MSTmax_year$DateYr <- DF_MSTmax_years #Colocarle el año al data frame anterior
+
+##lEFT MERGE (unir los data frame de acuerdo a "DateYr" que está en ambos DF )
+
+DF_MSTmax_year0 = merge(x = DF_YEAR_RAIN, y = DF_MSTmax_year, all.x= TRUE)
+
+DF_MSTmax_year0$MST[is.na(DF_MSTmax_year0$MST)] <- 0 #Reeomplazar los NA de la columna MST con 0
+
+##Estadisticas#################################################################################################
+
+summary(DF_MSTmax_year0$MST)
+mean(DF_MSTmax_year0$MST)
+median(DF_MSTmax_year0$MST)
+sd(DF_MSTmax_year0$MST)
+
+mean(DF_MSTmax_year$DJN)
+median(DF_MSTmax_year$DJN)
+sd(DF_MSTmax_year$DJN)
+
+summary(DF_YEAR_RAIN$pp_year)
+mean(DF_YEAR_RAIN$pp_year)
+median(DF_YEAR_RAIN$pp_year)
+sd(DF_YEAR_RAIN$pp_year)
+
+hist(DF_MSTmax_year0$MST, breaks = 6, freq = T, col = "blue", border = "black", main = "Histograma de MST maxima Anual", xlab = "Materia Seca Total Maxima Anual")
+
+par(mar=c(1, 1, 1, 1) + 4)
+plot(x= DF_MSTmax_year0$DateYr, y = DF_MSTmax_year0$MST,type="l", col = "green",xlab="Tiempo (años)", ylab = "MST maxima (kg/ha/año)", lwd=3, main= "Materia Seca Total Anual" )
+par(new=T)
+abline(coef=c(mean(DF_MSTmax_year0$MST),0), lwd = 2, lty = "dashed")
+par(new=T)
+plot(x= DF_MSTmax_year0$DateYr, y = DF_MSTmax_year0$pp_year, type="h", col = "blue", axes=F, ylab = "",xlab="", ylim =c(0,2000))
+axis(side = 4, at = pretty(range(DF_MSTmax_year0$pp_year)))
+mtext("Precipitación Anual (mm)", side = 4, line = 3)
+abline(coef=c(mean(DF_MSTmax_year0$pp_year),0), lwd = 2, lty = "dashed")
+
+
+
+##Modelo lineal de pp vs PMSA para serie pudahuel/custa barriga en terreno plano
+
+lm_rsg = lm(DF_MSTmax_year0$pp_year ~ DF_MSTmax_year0$MST)
+gof(DF_MSTmax_year0$pp_year, DF_MSTmax_year0$MST)
+
+lm_rsg = lm(DF_MSTmax_year0$MST ~ DF_MSTmax_year0$pp_year)
+gof(DF_MSTmax_year0$MST, DF_MSTmax_year0$pp_year)
+
+plot(DF_MSTmax_year0$pp_year, DF_MSTmax_year0$MST, col = "blue", xlim = c(0,700) )
+abline(coef=c(lm_rsg$coefficients[1],lm_rsg$coefficients[2]), lwd = 2)
+abline(coef=c(0,1), lwd = 2, lty = "dashed")
+
+text(x = 200, y = 3000, labels = paste0("y = ", round(lm_rsg$coefficients[2],5), "x + " , round(lm_rsg$coefficients[1],4)), font = 6)
+text(x = 200, y = 2650, labels = paste0("R2 = ", round(gof(DF_MSTmax_year0$MST, DF_MSTmax_year0$pp_year)[17],2)), font = 6)
+
+##Grafico de EUA para serie pudahuel/cuesta barriga en terreno plano
+
+EUAyr = DF_MSTmax_year0$MST/DF_MSTmax_year0$pp_year
+summary(EUAyr)
+
+plot(EUAyr, type = "l", lwd = "2", ylab = "Tiempo de simulación (años)")
+par(new =T)
+abline(coef=c(mean(EUAyr),0), lwd = 2, lty = "dashed")
+
+
+# remove element with value 0 desde un serie (MSTmax) con valores reales y 0s
+##MSTmax <- MSTmax[ MSTmax != 0 ]
+##MSTmax
+
+##COMPROBACIÓN DEL MODELO PINSOL USANDO DATOS REALES DE TMAX T MIN Y PRECIPITACIONES##########################################################
+#Calcula radiación solar para superficie plana usando rutina PINSOL.FOR
+##############################################################################################################################################
+
+Xlat = -33.4780                  #Latitud en grados decimales
+
+raAcc = c()
+rashAcc = c()
+CoefTranspAcc = c()
+RaDifAcc = c()
+RsRefleAcc = c()
+rsgAcc = c()
+
+for (e in 91:(1200+90)) {
+  
+  
+  
+  #Transforma diajuliano a dia en radianes
+  diarad = 2 * pi * (jday[e] - 1) / 365
+  
+  #Calcula distancia tierra-sol en unidades astronomicas
+  A1 = 1.00011
+  B1 = 0.034221 * cos(diarad) + 0.00128 * sin(diarad)
+  C1 = 0.000719 * cos(2 * diarad) + 0.000077 * sin(2 * diarad)
+  EoRS = A1 + B1 + C1
+  
+  #Calcula declinacion solar
+  A2 = 0.006918
+  B2 = -0.399912 * cos(diarad) + 0.070257 * sin(diarad)
+  C2 = -0.006758 * cos(2 * diarad) + 0.000907 * sin(2 * diarad)
+  D2 = -0.002697 * cos(3 * diarad) + 0.00148 * sin(3 * diarad)
+  Decl = A2 + B2 + C2 + D2
+  
+  #Insolacion potencial como funcion del tiempo
+  aip = 2 + 0.07 * cos(jday[e] * pi / 182.621)
+  sinLat = sin(Xlat * Cvr)
+  sinDec = sin(Decl)
+  sinAsp = sin(asp * Cvr)
+  sinSlp = sin(Slp)
+  clat = cos(Xlat * Cvr)
+  cosDec = cos(Decl)
+  cosAsp = cos(asp * Cvr)
+  cosSlp = cos(Slp)
+  
+  
+  if (abs(Xlat)<= 89.99999) {tanl = tan(Xlat * Cvr)} else {tanl = 6000000; if (Xlat < 0) {tanl = -tanl} }
+  
+  tand = tan(Decl)
+  
+  #Determina angulo horario del sol para salida y puesta del sol con pendiente cero
+  
+  tltd = -tanl * tand
+  
+  Wtime = ifelse(abs(tltd)<= 1,acos(-tanl * tand),ifelse(tltd > -1,0,pi)) #Caso de algo de día y algo de oscuridad; Caso deoscuridad perpetua; Caso de sol perpetuo
+  
+  tiempo = Wtime / w
+  
+  #Determina valores en el caso de pendiente cero
+  wt1 = -Wtime
+  wt2 = Wtime
+  srise = wt1 / w
+  sset = wt2 / w
+  aish = ((wt2 - wt1) * sinLat * sinDec + clat * cosDec * (sin(wt2) - sin(wt1))) / w
+  aiqh = aip * aish
+  
+  rih = ifelse(tiempo > 0, 50 * aish/tiempo, 0) #if (tiempo > 0) {rih = 50 * aish / tiempo; rsh = 1} else {rih = 0; rsh = 0}
+  rsh = ifelse(tiempo > 0, 1, 0)
+  
+  #####################################################################################################################################################
+  
+  if (Slope == 0) {aiq = aiqh; ri = rih} else {
+    AR = sinAsp * sinSlp/(cosSlp * clat - cosAsp * sinSlp * sinLat)
+    alpha = atan(AR) #Calcula el argumento para determinar cambio en longitud (ALPHA) debido a superficie con pendiente
+    a = sinSlp * cosAsp * clat + cosSlp * sinLat
+    if (abs(a) < 99999) {tanehl = a / sqrt(1 - a * a)} else {tanehl = a * 225}
+    
+    ehl = atan(tanehl)
+    sehl = sin(ehl)
+    cehl = cos(ehl)
+    tehltd = -tanehl * tand
+    
+    if (abs(tehltd) <= 1) {Wt = acos(-tanehl * tand)} else {if (tehltd > -1) {Wt = 0} else {Wt = pi} }
+    
+    wt1 = -Wt - alpha
+    wt2 = Wt - alpha
+    
+    #Chequea con valores para una superficie horizontal
+    
+    if (Wtime < abs(wt1)) {wt1 = -Wtime}
+    if (Wtime < abs(wt2)) {wt2 = Wtime}
+    
+    srise = wt1/w
+    sset = wt2/w
+    
+    #Calcula la insolacion potencial para el sitio actual
+    ais = ((wt2 - wt1) * sehl * sinDec + cehl * cosDec * (sin(wt2 + alpha) - sin(wt1 + alpha))) / w
+    aiq = aip * ais
+    
+    if (tiempo > 0) {ri = 50 * ais/tiempo; rsh = aiq/aiqh} else {ri = 0; rsh = 0}
+    
+  } 
+  
+  
+  #Radiacion solar potencial en MJ/m2/dia#################################################################################################
+  ra = EoRS * aiq * 4.184 / 100
+  wsr = srise
+  wss = sset
+  
+  #Duración del día
+  N = (2 / 15) * Wtime * (180 / pi)
+  
+  #Radiación solar superficie horizontal
+  rash = EoRS * aiqh * 4.184 / 100
+  
+  #Calcula coeficiente de transferencia de la atmósfera en función de las temperaturas y la rad. solar potencial
+  
+  diftemp = TmaxReal[e-90] - TminReal[e-90]
+  if (diftemp < 1)  {diftemp = 1}
+  
+  K1 = 0.45            #0.42 #0.35 original
+  K2 = 0.329
+  
+  CoefTransp = K1 * (1 - exp(-K2 * diftemp ^ 2 / rash))
+  
+  #Calcula radiación solar difusa
+  RaDif = rash * (1 - 1.096 * CoefTransp)
+  
+  #Radiación reflejada por la superficie que es reemitida por scattering a la superficie terrestre
+  RsRefle = 0.5 * rash * alb * (1 - cos(Slp))
+  
+  #Calcula radiación solar global
+  if (PPreal[e-90] != 0) {rpas = RaDif * CoefTransp} else {if (abs(Slope) == 0 | asp < 0) {rpas = (rash + RaDif) * CoefTransp} else {if (Slope != 0) {rpas = (ra + RaDif * 0.5 * (1 + cos(Slp)) + RsRefle) * CoefTransp} } }
+  
+  rsg = rpas
+  
+  
+  raAcc = c(raAcc, ra)
+  rashAcc = c(rashAcc, rash)
+  CoefTranspAcc = c(CoefTranspAcc, CoefTransp)
+  RaDifAcc = c(RaDifAcc, RaDif)
+  RsRefleAcc = c(RsRefleAcc, RsRefle)
+  rsgAcc = c(rsgAcc, rsg)
+  
+  print(paste0("Day ",e," of ",365," --------- " ,e*100/365,"%"))
+  
+}
+##Fin COMPROBACIÓN DE Pinsol.for##########################################################################################################
+lm_rsg = lm(rsgAcc ~ RSGreal)
+gof(rsgAcc, RSGreal)
+
+windowsFonts(A = windowsFont("Times New Roman"))
+plot(RSGreal,rsgAcc, col = "orange", family = "A", xlim = c(0,35), ylim = c(0,35), cex.axis = 1.15, cex.lab = 1.15, las = 1, xlab = "RSG real - INIA (MJ m-2 d-1)", ylab = "RSG simulada - PINSOL.FOR (MJ m-2 d-1)")
+abline(coef=c(0,1), lwd = 2, lty = "dashed")
+abline(coef=c( 4.0291, 0.7771  ), lwd = 2)
+text(x = 9, y = 33, labels = paste0("y = ", round(lm_rsg$coefficients[2],5), "x + " , round(lm_rsg$coefficients[1],4)), font = 6)
+text(x = 9, y = 27, labels = paste0("RMSE = ", round(gof(rsgAcc, RSGreal)[4],2)), font = 6)
+text(x = 9, y = 30, labels = paste0("R2 = ", round(gof(rsgAcc, RSGreal)[17],2)), font = 6)
+
+plot(rsgAcc, ylim = c(0,35))
+plot(RSGreal, ylim = c(0,35))
+
+##########################################################################################################################################
+
+##plots de funciones de Cobertura y Factor de restriccion por Temperatura 
+a = seq(0,2000,20)
+b = seq(0,1,0.05)
+c = seq(0,365,1)
+d = seq(-5,40,1)
+
+plot(1 - 0.6 * exp(-3 * a/2500), type = "l", ylim = c(0,1))
+plot(1 - 0.8 * exp(-2 * a/2500), type = "l", ylim = c(0,1)) 
+
+plot(FTEMP, type = "l", xlim = c(0,3000), ylim = c(0.2,1))
+plot(x = FTEMP, y = TMDlin, type = "l")
+
+plot(3 + (80 * exp(-4.5 * b)))
+plot(0.05 * ((c/7)^3), type = "l")
+plot(0.0021*(a) - 1.56, type = "l")
+
+plot(1/(1+17363.9*exp(-1.22039*d)), type = "l" )
+
+##Exportación de Resultados#####################################################################################
+
+write.csv(DF_RAIN, "D:/Gen_Lluv_R/results/AnnualRain0.csv")
+write.csv(YearRain, "D:/Gen_Lluv_R/results/YearRain.csv")
+Write.csv(MST, "D:/Gen_Lluv_R/results/MST.csv")
+write.csv(TMDlin, "D:/Gen_Lluv_R/results/TMDlin.csv")
+
+#Para tests de normalidad Shapiro (n° de datos<50) y kolmogorov (n° de datos>50) 
+#H0: La distribución  de los datos es normal (pValue 0-0.05 Rechazamos H0)(pValue >0.05 no podemos rechazar H0)
+
+options(scipen = 0)
